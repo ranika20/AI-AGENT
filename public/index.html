@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>סוכן חקירה</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">אבחון AI</p>
+          <h1>סוכן חקירה</h1>
+        </div>
+        <div class="scenario-control">
+          <label for="scenario">מצב שירות</label>
+          <select id="scenario">
+            <option value="normal">רגיל</option>
+            <option value="db_down">מסד מושבת</option>
+            <option value="slow">איטי</option>
+            <option value="timeout">פסק זמן</option>
+          </select>
+          <button id="applyScenario" class="secondary">עדכון</button>
+        </div>
+      </header>
+
+      <section class="panel provider-panel">
+        <div class="provider-row">
+          <label for="apiKeyInput">מפתח Google Gemini</label>
+          <input id="apiKeyInput" type="password" placeholder="הכנס מפתח כאן" />
+          <div class="provider-actions">
+            <button id="saveApiKeyBtn" class="secondary">שמור מפתח</button>
+            <button id="clearApiKeyBtn" class="secondary subtle">נקה מפתח</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="heroSection" class="panel hero-panel">
+        <div class="panel-header">
+          <h2>חקירה</h2>
+          <button id="investigateBtn">חקור</button>
+        </div>
+        <div id="statusBox" class="status-box">מוכן לבדיקה</div>
+        <div id="toolSummary" class="tool-summary"></div>
+        <div id="providerBadge" class="provider-badge">מנוע AI: ממתין להפעלה</div>
+      </section>
+
+      <section class="pipeline-grid">
+        <article class="panel pipeline-card">
+          <h3>ציר זמן</h3>
+          <div class="pipeline-steps">
+            <button type="button" class="step active" data-target="heroSection"><span class="step-index">1</span><span>🔎 סוכן 1: איסוף ראיות</span></button>
+            <button type="button" class="step" data-target="reportSection"><span class="step-index">2</span><span>📌 ממצאי סוכן 1</span></button>
+            <button type="button" class="step" data-target="logsSection"><span class="step-index">3</span><span>🧾 לוגים וארועים</span></button>
+            <button type="button" class="step" data-target="decisionSection"><span class="step-index">4</span><span>✅ החלטת סוכן 2</span></button>
+          </div>
+        </article>
+
+        <article class="panel pipeline-card">
+          <h3>כלים בשימוש</h3>
+          <ul class="tool-list">
+            <li>בדיקת מצב</li>
+            <li>קורא לוגים</li>
+            <li>בודק גרסה</li>
+          </ul>
+        </article>
+      </section>
+
+      <section id="reportSection" class="report-grid">
+        <article class="panel">
+          <h3>ממצאי סוכן 1</h3>
+          <div id="report" class="report-body">לחץ על "חקור" כדי להתחיל.</div>
+        </article>
+
+        <article class="panel">
+          <h3>ראיות</h3>
+          <ul id="evidenceList" class="evidence-list"></ul>
+        </article>
+      </section>
+
+      <section id="logsSection" class="panel decision-panel">
+        <div class="section-header-row">
+          <h3>לוגים וארועים</h3>
+          <div class="log-filters" aria-label="מסנני לוגים">
+            <button type="button" class="filter-btn active" data-log-filter="all">הכול</button>
+            <button type="button" class="filter-btn" data-log-filter="info">מידע</button>
+            <button type="button" class="filter-btn" data-log-filter="warn">אזהרה</button>
+            <button type="button" class="filter-btn" data-log-filter="error">שגיאה</button>
+          </div>
+        </div>
+        <pre id="logsBox" class="logs-box">אין נתוני לוגים עדיין.</pre>
+      </section>
+
+      <section id="decisionSection" class="panel decision-panel">
+        <h3>החלטת סוכן 2</h3>
+        <div id="decisionBox" class="decision-box">ממתין להחלטה.</div>
+      </section>
+    </main>
+
+    <script>
+      const scenarioSelect = document.getElementById('scenario');
+      const statusBox = document.getElementById('statusBox');
+      const reportBox = document.getElementById('report');
+      const evidenceList = document.getElementById('evidenceList');
+      const decisionBox = document.getElementById('decisionBox');
+      const logsBox = document.getElementById('logsBox');
+      const toolSummary = document.getElementById('toolSummary');
+      const providerBadge = document.getElementById('providerBadge');
+      const apiKeyInput = document.getElementById('apiKeyInput');
+      const saveApiKeyBtn = document.getElementById('saveApiKeyBtn');
+      const clearApiKeyBtn = document.getElementById('clearApiKeyBtn');
+      let activeLogFilter = 'all';
+
+      function setProviderState(value) {
+        const isGemini = value === 'gemini';
+        providerBadge.textContent = isGemini ? 'מנוע AI: Google Gemini' : 'מנוע AI: גיבוי מקומי';
+        providerBadge.classList.toggle('active', isGemini);
+      }
+
+      function setPipelineState(stage) {
+        const steps = document.querySelectorAll('.step');
+        steps.forEach((step, index) => {
+          step.classList.toggle('active', index === stage);
+        });
+      }
+
+      function bindTimelineNavigation() {
+        document.querySelectorAll('.step').forEach((button) => {
+          button.addEventListener('click', () => {
+            const targetId = button.dataset.target;
+            const target = document.getElementById(targetId);
+            if (target) {
+              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          });
+        });
+      }
+
+      function bindLogFilters() {
+        document.querySelectorAll('.filter-btn').forEach((button) => {
+          button.addEventListener('click', () => {
+            activeLogFilter = button.dataset.logFilter || 'all';
+            document.querySelectorAll('.filter-btn').forEach((item) => {
+              item.classList.toggle('active', item === button);
+            });
+
+            const logs = Array.isArray(window.lastLogs) ? window.lastLogs : [];
+            renderLogs(logs, activeLogFilter);
+          });
+        });
+      }
+
+      function renderLogs(logs, filter = 'all') {
+        const safeLogs = Array.isArray(logs) ? logs : [];
+        const filtered = safeLogs.filter((line) => {
+          if (filter === 'all') return true;
+          const text = String(line || '').toUpperCase();
+          if (filter === 'info') return text.includes('INFO');
+          if (filter === 'warn') return text.includes('WARN');
+          if (filter === 'error') return text.includes('ERROR');
+          return true;
+        });
+
+        const logEntries = filtered.map((line) => {
+          const lower = String(line || '').toUpperCase();
+          let level = 'info';
+          let label = 'מידע';
+          if (lower.includes('ERROR')) {
+            level = 'error';
+            label = 'שגיאה';
+          } else if (lower.includes('WARN')) {
+            level = 'warn';
+            label = 'אזהרה';
+          } else if (lower.includes('INFO')) {
+            level = 'info';
+            label = 'מידע';
+          }
+
+          return `
+            <div class="log-entry log-${level}">
+              <span class="log-label">${label}</span>
+              <span>${line}</span>
+            </div>
+          `;
+        }).join('');
+
+        logsBox.innerHTML = logEntries || '<span class="muted-text">אין נתוני לוגים.</span>';
+        window.lastLogs = logs;
+      }
+
+      async function saveApiKey() {
+        const providerKey = apiKeyInput.value.trim();
+        const response = await fetch('/api/provider-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerKey })
+        });
+        const data = await response.json();
+
+        setProviderState(data.provider || 'fallback');
+        statusBox.textContent = data.message || 'סטטוס ה-AI עודכן.';
+        statusBox.classList.add('success');
+        apiKeyInput.value = '';
+      }
+
+      async function clearApiKey() {
+        const response = await fetch('/api/provider-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ providerKey: '' })
+        });
+        const data = await response.json();
+
+        setProviderState(data.provider || 'fallback');
+        statusBox.textContent = data.message || 'מפתח ה-AI נוקה.';
+        statusBox.classList.add('success');
+        apiKeyInput.value = '';
+      }
+
+      async function loadScenario() {
+        const configResponse = await fetch('/api/config');
+        const config = await configResponse.json();
+        scenarioSelect.value = config.currentMode || config.current || 'normal';
+        setProviderState(config.provider || 'fallback');
+
+        const scenariosResponse = await fetch('/api/scenarios');
+        const data = await scenariosResponse.json();
+        scenarioSelect.value = data.current || config.currentMode || 'normal';
+      }
+
+      async function applyScenario() {
+        const mode = scenarioSelect.value;
+        const response = await fetch('/api/scenario', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode })
+        });
+        const data = await response.json();
+        statusBox.textContent = `מצב השירות עודכן: ${data.current}`;
+        statusBox.classList.add('success');
+      }
+
+      async function investigate() {
+        statusBox.textContent = 'בודק את השירות...';
+        statusBox.classList.remove('success');
+        reportBox.textContent = 'סוכן 1 אוסף ראיות...';
+        evidenceList.innerHTML = '';
+        decisionBox.textContent = 'סוכן 2 מעריך את הממצאים...';
+        logsBox.innerHTML = '<span class="muted-text">ממתין לקבלת לוגים...</span>';
+        toolSummary.innerHTML = '<span class="pill neutral">שליחת כלי חקירה</span>';
+        providerBadge.textContent = 'מנוע AI: בטעינה...';
+        setPipelineState(0);
+
+        const response = await fetch('/api/investigate', { method: 'POST' });
+        const payload = await response.json();
+
+        if (!payload.ok) {
+          statusBox.textContent = 'שגיאה במהלך החקירה';
+          reportBox.textContent = payload.message || 'החקירה נכשלה';
+          return;
+        }
+
+        const report = payload.report || {};
+        const decision = payload.decision || {};
+        const health = payload.tools?.health || {};
+        const logs = payload.tools?.logs?.logs || [];
+        const version = payload.tools?.version || {};
+        const provider = payload.provider || 'fallback';
+
+        statusBox.textContent = `החוקר סיים: ${payload.mode}`;
+        statusBox.classList.add('success');
+        providerBadge.textContent = provider === 'gemini' ? 'מנוע AI: Google Gemini' : 'מנוע AI: גיבוי מקומי';
+        setPipelineState(1);
+
+        toolSummary.innerHTML = `
+          <span class="pill ${health.status === 'ok' ? 'good' : health.status === 'degraded' ? 'warn' : 'bad'}">בריאות: ${health.status || 'unknown'}</span>
+          <span class="pill neutral">לוגים: ${logs.length}</span>
+          <span class="pill neutral">גרסה: ${version.version || 'unknown'}</span>
+        `;
+
+        window.lastLogs = logs;
+        renderLogs(logs, activeLogFilter);
+        setPipelineState(2);
+
+        reportBox.innerHTML = `
+          <strong>תקלה:</strong> ${report.issue || 'לא זוהתה תקלה'}<br />
+          <strong>סיכום:</strong> ${report.summary || 'אין סיכום'}<br />
+          <strong>הצעד הבא:</strong> ${report.nextStep || 'אין המלצה'}
+        `;
+
+        const evidence = Array.isArray(report.evidence) ? report.evidence : [];
+        evidenceList.innerHTML = evidence
+          .map((item) => `<li>${item}</li>`)
+          .join('');
+
+        decisionBox.innerHTML = `
+          <strong>${decision.verdict || 'לא התקבלה החלטה'}</strong><br />
+          ${decision.rationale || 'אין הסבר'}<br />
+          <strong>המלצה:</strong> ${decision.recommendation || 'אין המלצה'}
+        `;
+        setPipelineState(3);
+      }
+
+      document.getElementById('applyScenario').addEventListener('click', applyScenario);
+      document.getElementById('investigateBtn').addEventListener('click', investigate);
+      saveApiKeyBtn.addEventListener('click', saveApiKey);
+      clearApiKeyBtn.addEventListener('click', clearApiKey);
+      bindTimelineNavigation();
+      bindLogFilters();
+      loadScenario();
+    </script>
+  </body>
+</html>
