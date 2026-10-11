@@ -39,7 +39,10 @@
       <section id="heroSection" class="panel hero-panel">
         <div class="panel-header">
           <h2>חקירה</h2>
-          <button id="investigateBtn">חקור</button>
+          <div class="hero-actions">
+            <button id="copyResultBtn" class="secondary">העתק תוצאות</button>
+            <button id="investigateBtn">חקור</button>
+          </div>
         </div>
         <div id="statusBox" class="status-box">מוכן לבדיקה</div>
         <div id="toolSummary" class="tool-summary"></div>
@@ -57,13 +60,22 @@
           </div>
         </article>
 
-        <article class="panel pipeline-card">
-          <h3>כלים בשימוש</h3>
-          <ul class="tool-list">
-            <li>בדיקת מצב</li>
-            <li>קורא לוגים</li>
-            <li>בודק גרסה</li>
-          </ul>
+        <article class="panel pipeline-card summary-card">
+          <h3>סיכום מהיר</h3>
+          <div class="mini-kpis">
+            <div class="kpi-box">
+              <span class="kpi-label">מצב</span>
+              <strong id="kpiMode">רגיל</strong>
+            </div>
+            <div class="kpi-box">
+              <span class="kpi-label">בריאות</span>
+              <strong id="kpiHealth">לא ידוע</strong>
+            </div>
+            <div class="kpi-box">
+              <span class="kpi-label">לוגים</span>
+              <strong id="kpiLogs">0</strong>
+            </div>
+          </div>
         </article>
       </section>
 
@@ -110,6 +122,10 @@
       const apiKeyInput = document.getElementById('apiKeyInput');
       const saveApiKeyBtn = document.getElementById('saveApiKeyBtn');
       const clearApiKeyBtn = document.getElementById('clearApiKeyBtn');
+      const copyResultBtn = document.getElementById('copyResultBtn');
+      const kpiMode = document.getElementById('kpiMode');
+      const kpiHealth = document.getElementById('kpiHealth');
+      const kpiLogs = document.getElementById('kpiLogs');
       let activeLogFilter = 'all';
 
       function setProviderState(value) {
@@ -153,40 +169,53 @@
 
       function renderLogs(logs, filter = 'all') {
         const safeLogs = Array.isArray(logs) ? logs : [];
-        const filtered = safeLogs.filter((line) => {
+        const filtered = safeLogs.filter((entry) => {
           if (filter === 'all') return true;
-          const text = String(line || '').toUpperCase();
-          if (filter === 'info') return text.includes('INFO');
-          if (filter === 'warn') return text.includes('WARN');
-          if (filter === 'error') return text.includes('ERROR');
-          return true;
+          const level = typeof entry === 'string'
+            ? (entry.match(/\[(INFO|WARN|ERROR)\]/i)?.[1] || 'INFO')
+            : entry?.level || 'INFO';
+          return String(level).toLowerCase() === filter;
         });
 
-        const logEntries = filtered.map((line) => {
-          const lower = String(line || '').toUpperCase();
-          let level = 'info';
-          let label = 'מידע';
-          if (lower.includes('ERROR')) {
-            level = 'error';
-            label = 'שגיאה';
-          } else if (lower.includes('WARN')) {
-            level = 'warn';
-            label = 'אזהרה';
-          } else if (lower.includes('INFO')) {
-            level = 'info';
-            label = 'מידע';
-          }
+        const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({
+          '&': '&amp;',
+          '<': '&lt;',
+          '>': '&gt;',
+          '"': '&quot;',
+          "'": '&#39;'
+        })[character]);
+        const logEntries = filtered.map((entry) => {
+          const legacyMessage = typeof entry === 'string' ? entry : '';
+          const parsedLevel = typeof entry === 'string'
+            ? (legacyMessage.match(/\[(INFO|WARN|ERROR)\]/i)?.[1] || 'INFO')
+            : entry?.level || 'INFO';
+          const level = String(parsedLevel).toLowerCase();
+          const label = level === 'error' ? 'שגיאה' : level === 'warn' ? 'אזהרה' : 'מידע';
+          const message = typeof entry === 'string' ? legacyMessage : entry?.message || '';
+          const details = typeof entry === 'string'
+            ? ''
+            : [entry?.timestamp, entry?.component, entry?.code, Object.keys(entry?.context || {}).length ? JSON.stringify(entry.context) : '']
+              .filter(Boolean)
+              .join(' · ');
 
           return `
             <div class="log-entry log-${level}">
               <span class="log-label">${label}</span>
-              <span>${line}</span>
+              <span>${escapeHtml([details, message].filter(Boolean).join(' · '))}</span>
             </div>
           `;
         }).join('');
 
         logsBox.innerHTML = logEntries || '<span class="muted-text">אין נתוני לוגים.</span>';
         window.lastLogs = logs;
+      }
+
+      function setSavedKey(providerKey) {
+        if (providerKey) {
+          localStorage.setItem('geminiApiKey', providerKey);
+        } else {
+          localStorage.removeItem('geminiApiKey');
+        }
       }
 
       async function saveApiKey() {
@@ -198,6 +227,7 @@
         });
         const data = await response.json();
 
+        setSavedKey(providerKey);
         setProviderState(data.provider || 'fallback');
         statusBox.textContent = data.message || 'סטטוס ה-AI עודכן.';
         statusBox.classList.add('success');
@@ -212,21 +242,55 @@
         });
         const data = await response.json();
 
+        setSavedKey('');
         setProviderState(data.provider || 'fallback');
         statusBox.textContent = data.message || 'מפתח ה-AI נוקה.';
         statusBox.classList.add('success');
         apiKeyInput.value = '';
       }
 
+      function updateMiniKpis(mode, healthStatus, logCount) {
+        const labelMap = {
+          normal: 'רגיל',
+          db_down: 'מסד מושבת',
+          slow: 'איטי',
+          timeout: 'פסק זמן'
+        };
+
+        kpiMode.textContent = labelMap[mode] || mode || 'רגיל';
+        kpiHealth.textContent = healthStatus || 'לא ידוע';
+        kpiLogs.textContent = String(logCount || 0);
+      }
+
+      async function copyResult() {
+        const snapshot = `${reportBox.innerText || 'לא היו תוצאות.'}\n\n${decisionBox.innerText || 'אין החלטה.'}`;
+        try {
+          await navigator.clipboard.writeText(snapshot);
+          statusBox.textContent = 'התוצאות הועתקו ללוח.';
+          statusBox.classList.add('success');
+        } catch (error) {
+          statusBox.textContent = 'לא ניתן להעתיק את התוצאות.';
+          statusBox.classList.remove('success');
+        }
+      }
+
       async function loadScenario() {
         const configResponse = await fetch('/api/config');
         const config = await configResponse.json();
-        scenarioSelect.value = config.currentMode || config.current || 'normal';
+        const currentMode = config.currentMode || config.current || 'normal';
+        scenarioSelect.value = currentMode;
         setProviderState(config.provider || 'fallback');
+        updateMiniKpis(currentMode, 'לא ידוע', 0);
+
+        const savedKey = localStorage.getItem('geminiApiKey');
+        if (savedKey) {
+          apiKeyInput.value = savedKey;
+        }
 
         const scenariosResponse = await fetch('/api/scenarios');
         const data = await scenariosResponse.json();
-        scenarioSelect.value = data.current || config.currentMode || 'normal';
+        scenarioSelect.value = data.current || currentMode;
+        updateMiniKpis(data.current || currentMode, 'לא ידוע', 0);
       }
 
       async function applyScenario() {
@@ -272,6 +336,7 @@
         statusBox.classList.add('success');
         providerBadge.textContent = provider === 'gemini' ? 'מנוע AI: Google Gemini' : 'מנוע AI: גיבוי מקומי';
         setPipelineState(1);
+        updateMiniKpis(payload.mode || 'normal', health.status || 'unknown', logs.length || 0);
 
         toolSummary.innerHTML = `
           <span class="pill ${health.status === 'ok' ? 'good' : health.status === 'degraded' ? 'warn' : 'bad'}">בריאות: ${health.status || 'unknown'}</span>
@@ -304,6 +369,7 @@
 
       document.getElementById('applyScenario').addEventListener('click', applyScenario);
       document.getElementById('investigateBtn').addEventListener('click', investigate);
+      copyResultBtn.addEventListener('click', copyResult);
       saveApiKeyBtn.addEventListener('click', saveApiKey);
       clearApiKeyBtn.addEventListener('click', clearApiKey);
       bindTimelineNavigation();

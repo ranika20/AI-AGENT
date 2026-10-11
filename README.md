@@ -45,8 +45,10 @@ A small Express-based demo that simulates an application with different runtime 
 - `GET /api/config` — returns current config and provider state
 - `POST /api/investigate` — runs the investigation against the internal service
 - `GET /service/health` — service health endpoint
-- `GET /service/logs` — log output
+- `GET /service/logs` — structured log events with timestamp, level, message, component, code, and context fields
 - `GET /service/version` — application version
+
+The investigation endpoint queries the health, logs, and version endpoints independently in parallel. Each request is aborted after 3 seconds; a failed request is reported as incomplete evidence without discarding successful results. The simulated service logs are returned as structured JSON objects so the UI and investigation agent can inspect individual fields.
 
 ## Model configuration
 

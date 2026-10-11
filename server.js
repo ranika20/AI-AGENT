@@ -35,6 +35,11 @@ function getRuntimeMode() {
   return VALID_MODES.includes(mode) ? mode : 'normal';
 }
 
+function getTargetServiceUrl() {
+  const targetBase = process.env.TARGET_SERVICE_URL || `http://127.0.0.1:${PORT}`;
+  return targetBase.replace(/^(https?:\/\/)localhost(?=[:/]|$)/i, (_, protocol) => `${protocol}127.0.0.1`);
+}
+
 function getServiceSnapshot() {
   const mode = getRuntimeMode();
 
@@ -86,41 +91,52 @@ function getServiceSnapshot() {
   };
 }
 
+function createLog(level, message, component = 'order-api', code = null, context = {}) {
+  return {
+    timestamp: new Date().toISOString(),
+    level,
+    message,
+    component,
+    code,
+    context
+  };
+}
+
 function getLogs(mode = getRuntimeMode()) {
   const base = [
-    '[INFO] Starting Order API service',
-    '[INFO] Loaded configuration from environment variables',
-    '[INFO] Metrics exporter initialized',
-    '[WARN] Traffic is above the 90th percentile'
+    createLog('INFO', 'Starting Order API service'),
+    createLog('INFO', 'Loaded configuration from environment variables'),
+    createLog('INFO', 'Metrics exporter initialized', 'metrics'),
+    createLog('WARN', 'Traffic is above the 90th percentile', 'traffic-monitor', 'HIGH_TRAFFIC')
   ];
 
   if (mode === 'normal') {
-    return [...base, '[INFO] Health check passed for all dependencies'];
+    return [...base, createLog('INFO', 'Health check passed for all dependencies', 'health-check')];
   }
 
   if (mode === 'db_down') {
     return [
       ...base,
-      '[ERROR] Failed to connect to PostgreSQL on db-primary.internal:5432',
-      '[ERROR] Connection refused: ECONNREFUSED',
-      '[ERROR] Health check returned 503 for /orders/summary'
+      createLog('ERROR', 'Failed to connect to PostgreSQL on db-primary.internal:5432', 'database', 'DB_CONNECTION_FAILED'),
+      createLog('ERROR', 'Connection refused: ECONNREFUSED', 'database', 'ECONNREFUSED'),
+      createLog('ERROR', 'Health check returned 503 for /orders/summary', 'health-check', 'HEALTH_CHECK_FAILED')
     ];
   }
 
   if (mode === 'slow') {
     return [
       ...base,
-      '[WARN] Database query slice exceeded 4s threshold',
-      '[WARN] Response time peak reached 4200 ms',
-      '[INFO] Client retries are increasing due to latency'
+      createLog('WARN', 'Database query slice exceeded 4s threshold', 'database', 'QUERY_SLOW'),
+      createLog('WARN', 'Response time peak reached 4200 ms', 'order-api', 'HIGH_LATENCY', { latencyMs: 4200 }),
+      createLog('INFO', 'Client retries are increasing due to latency', 'order-api')
     ];
   }
 
   return [
     ...base,
-    '[ERROR] SQL query to orders table exceeded the request timeout window',
-    '[ERROR] Gateway timeout for /orders/summary after 10s',
-    '[WARN] Resource pool is saturated and connection handling is blocked'
+    createLog('ERROR', 'SQL query to orders table exceeded the request timeout window', 'database', 'QUERY_TIMEOUT'),
+    createLog('ERROR', 'Gateway timeout for /orders/summary after 10s', 'gateway', 'GATEWAY_TIMEOUT', { timeoutMs: 10000 }),
+    createLog('WARN', 'Resource pool is saturated and connection handling is blocked', 'database', 'POOL_SATURATED')
   ];
 }
 
@@ -147,7 +163,7 @@ app.get('/api/config', (req, res) => {
     port: PORT,
     currentMode: getRuntimeMode(),
     provider: getAiProviderStatus(),
-    targetServiceUrl: process.env.TARGET_SERVICE_URL || `http://localhost:${PORT}`,
+    targetServiceUrl: getTargetServiceUrl(),
     apiKeyConfigured: Boolean(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY)
   });
 });
@@ -263,7 +279,7 @@ function getAiProviderStatus() {
 function buildFallbackReport(toolResults) {
   const health = toolResults.health || {};
   const logs = toolResults.logs?.logs || [];
-  const logText = logs.join('\n');
+  const logText = logs.map((log) => typeof log === 'string' ? log : log.message || '').join('\n');
 
   if (health.status === 'error' || health.code === 'DB_UNAVAILABLE' || logText.includes('ECONNREFUSED')) {
     return {
@@ -298,6 +314,21 @@ function buildFallbackReport(toolResults) {
         'הגייטווי החזיר HTTP 504 עבור הבקשה.'
       ],
       nextStep: 'בדוק את שאילתת SQL הארוכה, הפחת את נפח העסקאות, והגבר את זמן הפסק רק לאחר שהסיבה השורשית אומתה.'
+    };
+  }
+
+  const failedTools = Object.entries(toolResults)
+    .filter(([, result]) => result?.error)
+    .map(([name]) => name);
+  if (failedTools.length > 0) {
+    return {
+      issue: 'איסוף ראיות חלקי',
+      evidence: [
+        `לא ניתן היה לאסוף נתונים מהכלים הבאים: ${failedTools.join(', ')}.`,
+        'תוצאות הכלים שהצליחו נשמרו וזמינות לבדיקה.',
+        'יש לאמת את זמינות השירות ולנסות את החקירה שוב.'
+      ],
+      nextStep: 'בדוק את זמינות השירות ואת נקודות הקצה שנכשלו, ואז הרץ את החקירה מחדש.'
     };
   }
 
@@ -426,18 +457,57 @@ async function runGeminiAnalysis(toolResults) {
 }
 
 app.post('/api/investigate', async (req, res) => {
-  const targetBase = process.env.TARGET_SERVICE_URL || `http://localhost:${PORT}`;
+  const targetBase = getTargetServiceUrl();
+  const requestTimeoutMs = 3000;
+
+  async function fetchJsonWithTimeout(url) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
+
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      return await response.json();
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
 
   try {
-    const [healthRes, logsRes, versionRes] = await Promise.all([
-      fetch(`${targetBase}/service/health`),
-      fetch(`${targetBase}/service/logs`),
-      fetch(`${targetBase}/service/version`)
+    const results = await Promise.allSettled([
+      fetchJsonWithTimeout(`${targetBase}/service/health`),
+      fetchJsonWithTimeout(`${targetBase}/service/logs`),
+      fetchJsonWithTimeout(`${targetBase}/service/version`)
     ]);
 
-    const health = await healthRes.json().catch(() => ({ status: 'unknown' }));
-    const logs = await logsRes.json().catch(() => ({ logs: [] }));
-    const version = await versionRes.json().catch(() => ({ version: 'unknown' }));
+    const [healthResult, logsResult, versionResult] = results;
+    const getRejectedError = (result) => result.status === 'rejected'
+      ? result.reason instanceof Error ? result.reason : new Error(String(result.reason))
+      : null;
+    const healthError = getRejectedError(healthResult);
+    const logsError = getRejectedError(logsResult);
+    const versionError = getRejectedError(versionResult);
+    const health = healthResult.status === 'fulfilled'
+      && healthResult.value && typeof healthResult.value === 'object'
+      ? healthResult.value
+      : {
+          status: healthError?.name === 'AbortError' ? 'timeout' : 'unknown',
+          code: healthError?.name === 'AbortError' ? 'INVESTIGATION_TIMEOUT' : 'HEALTH_CHECK_FAILED',
+          error: healthError?.message || 'Health endpoint returned an invalid response.'
+        };
+    const logs = logsResult.status === 'fulfilled'
+      && logsResult.value && typeof logsResult.value === 'object' && Array.isArray(logsResult.value.logs)
+      ? logsResult.value
+      : {
+          logs: [createLog('ERROR', `Unable to collect service logs: ${logsError?.message || 'Logs endpoint returned an invalid response.'}`, 'investigation-agent', 'LOGS_UNAVAILABLE')],
+          error: logsError?.message || 'Logs endpoint returned an invalid response.'
+        };
+    const version = versionResult.status === 'fulfilled'
+      && versionResult.value && typeof versionResult.value === 'object'
+      ? versionResult.value
+      : {
+          version: 'unknown',
+          error: versionError?.message || 'Version endpoint returned an invalid response.'
+        };
 
     const toolResults = { health, logs, version };
     let investigatorReport = buildFallbackReport(toolResults);
