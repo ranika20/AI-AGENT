@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      SERVICE_MODE: "${SERVICE_MODE:-normal}"
+      SERVICE_VERSION: "${SERVICE_VERSION:-1.4.2}"
+      TARGET_SERVICE_URL: "${TARGET_SERVICE_URL:-http://127.0.0.1:3000}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"

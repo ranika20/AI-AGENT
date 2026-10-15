@@ -37,6 +37,16 @@ A small Express-based demo that simulates an application with different runtime 
 
 4. Open http://localhost:3000
 
+## Run with Docker
+
+With Docker and Docker Compose installed, build and start the app from the project directory:
+
+```bash
+docker compose up --build
+```
+
+Open http://localhost:3000. The app runs in a container; Compose reads optional settings such as `GOOGLE_API_KEY`, `SERVICE_MODE`, and `PORT` from `.env`. The container listens on port 3000; `PORT` in `.env` controls the host port. To stop it, press Ctrl+C, or run `docker compose down` in another terminal.
+
 ## API endpoints
 
 - `GET /api/scenarios` — returns available runtime modes
