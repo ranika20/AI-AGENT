@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>???? ?????</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/config.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">????? AI</p>
+          <h1>???? ?????</h1>
+        </div>
+        <div class="scenario-control">
+          <label for="scenario">??? ?????</label>
+          <select id="scenario">
+            <option value="normal">????</option>
+            <option value="db_down">??? ?????</option>
+            <option value="slow">????</option>
+            <option value="timeout">??? ???</option>
+          </select>
+          <button id="applyScenario" class="secondary">?????</button>
+        </div>
+      </header>
+
+      <section class="panel provider-panel">
+        <div class="provider-row">
+          <label for="apiKeyInput">???? Google Gemini</label>
+          <input id="apiKeyInput" type="password" placeholder="???? ???? ???" />
+          <div class="provider-actions">
+            <button id="saveApiKeyBtn" class="secondary">???? ????</button>
+            <button id="clearApiKeyBtn" class="secondary subtle">??? ????</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel hero-panel">
+        <div class="panel-header">
+          <h2>?????</h2>
+          <div class="hero-actions">
+            <button id="copyResultBtn" class="secondary">???? ??????</button>
+            <button id="investigateBtn">????</button>
+          </div>
+        </div>
+        <div id="statusBox" class="status-box">???? ??????</div>
+        <div id="toolSummary" class="tool-summary"></div>
+        <div id="providerBadge" class="provider-badge">???? AI: ????? ??????</div>
+      </section>
+
+      <section class="report-grid">
+        <article class="panel">
+          <h3>????? ???? 1</h3>
+          <div id="report" class="report-body">??? ?? "????" ??? ??????.</div>
+        </article>
+
+        <article class="panel">
+          <h3>?????</h3>
+          <ul id="evidenceList" class="evidence-list"></ul>
+        </article>
+      </section>
+
+      <section class="panel decision-panel">
+        <h3>????? ???? 2</h3>
+        <div id="decisionBox" class="decision-box">????? ??????.</div>
+      </section>
+
+      <section class="panel logs-panel">
+        <h3>????? ???????</h3>
+        <pre id="logsBox" class="logs-box">??? ????? ????? ?????.</pre>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
